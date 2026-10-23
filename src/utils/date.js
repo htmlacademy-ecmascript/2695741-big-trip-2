@@ -4,6 +4,8 @@ import utc from 'dayjs/plugin/utc';
 dayjs.extend(utc);
 
 const formatDate = (date, format) => dayjs.utc(date).format(format);
+const toPickerDate = (date) => new Date(formatDate(date, 'YYYY-MM-DDTHH:mm:ss.SSS'));
+const fromPickerDate = (date) => dayjs(date).utc(true).toISOString();
 
 const formatDuration = (from, to) => {
   const minutes = dayjs(to).diff(dayjs(from), 'minute');
@@ -23,4 +25,4 @@ const formatDuration = (from, to) => {
   return `${pad(remainder)}M`;
 };
 
-export {formatDate, formatDuration};
+export {formatDate, formatDuration, toPickerDate, fromPickerDate};

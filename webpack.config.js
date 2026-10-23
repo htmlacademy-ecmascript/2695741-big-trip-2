@@ -15,12 +15,18 @@ module.exports = {
       template: './public/index.html',
     }),
     new CopyPlugin({
-      patterns: [{
-        from: 'public',
-        globOptions: {
-          ignore: ['**/index.html'],
+      patterns: [
+        {
+          from: 'public',
+          globOptions: {
+            ignore: ['**/index.html'],
+          },
         },
-      }],
+        {
+          from: 'node_modules/flatpickr/dist/flatpickr.min.css',
+          to: 'css/flatpickr.css',
+        },
+      ],
     }),
   ],
   devServer: {

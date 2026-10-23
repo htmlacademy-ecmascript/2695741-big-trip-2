@@ -5,6 +5,7 @@ import PointView from '../view/point-view.js';
 import SummaryView from '../view/summary-view.js';
 import FilterView from '../view/filter-view.js';
 import SortView from '../view/sort-view.js';
+import PointFormView from '../view/point-form-view.js';
 import {FILTERS, SORTS, filterPoints} from '../utils/route.js';
 
 export default class RoutePresenter {
@@ -16,11 +17,16 @@ export default class RoutePresenter {
   #filterView = null;
   #sortView = null;
   #contentView = null;
+  #pointViews = new Map();
+  #form = null;
+  #addButton;
 
   constructor(store, container, header) {
     this.#store = store;
     this.#container = container;
     this.#header = header;
+    this.#addButton = header.querySelector('.trip-main__event-add-btn');
+    this.#addButton.addEventListener('click', () => this.#openForm());
   }
 
   async init() {
@@ -68,6 +74,8 @@ export default class RoutePresenter {
   }
 
   #renderPoints() {
+    this.#clearForm();
+    this.#pointViews.clear();
     this.#sortView?.getElement().remove();
     this.#contentView?.getElement().remove();
     const points = filterPoints(this.#store.points, this.#filter).sort(SORTS[this.#sort]);
@@ -87,7 +95,63 @@ export default class RoutePresenter {
     render(this.#contentView, this.#container);
 
     points.forEach((point) => {
-      render(new PointView(point, this.#store.getDestination(point.destination), this.#store.getSelectedOffers(point)), this.#contentView.getElement());
+      const view = new PointView(point, this.#store.getDestination(point.destination), this.#store.getSelectedOffers(point), () => this.#openForm(point));
+      this.#pointViews.set(point.id, view);
+      render(view, this.#contentView.getElement());
     });
   }
+
+  #openForm(point = null) {
+    if (!point) {
+      this.#filter = 'everything';
+      this.#sort = 'day';
+      this.#renderFilters();
+    }
+
+    this.#renderPoints();
+    const draft = point ?? {
+      type: 'flight',
+      destination: null,
+      dateFrom: null,
+      dateTo: null,
+      basePrice: 0,
+      offers: [],
+      isFavorite: false,
+    };
+    this.#form = new PointFormView(draft, this.#store.destinations, this.#store.offers, this.#closeForm);
+
+    if (point) {
+      this.#pointViews.get(point.id).getElement().replaceWith(this.#form.getElement());
+    } else {
+      if (!this.#store.points.length) {
+        this.#contentView.getElement().remove();
+        this.#contentView = new ListView();
+        render(this.#contentView, this.#container);
+      }
+
+      render(this.#form, this.#contentView.getElement(), RenderPosition.AFTERBEGIN);
+      this.#addButton.disabled = true;
+    }
+
+    this.#form.init();
+    document.addEventListener('keydown', this.#onEscape, true);
+  }
+
+  #clearForm() {
+    this.#form?.destroy();
+    this.#form = null;
+    this.#addButton.disabled = false;
+    document.removeEventListener('keydown', this.#onEscape, true);
+  }
+
+  #closeForm = () => {
+    this.#renderPoints();
+  };
+
+  #onEscape = (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.#closeForm();
+    }
+  };
 }
