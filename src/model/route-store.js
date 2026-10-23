@@ -1,3 +1,5 @@
+import {toClientPoint, toServerPoint} from './point-adapter.js';
+
 export default class RouteStore {
   #api;
   points = [];
@@ -10,23 +12,34 @@ export default class RouteStore {
 
   async load() {
     const [points, destinations, offers] = await Promise.all([
-      this.#api.load('points'),
-      this.#api.load('destinations'),
-      this.#api.load('offers'),
+      this.#api.request('points'),
+      this.#api.request('destinations'),
+      this.#api.request('offers'),
     ]);
 
-    this.points = points.map((point) => ({
-      id: point.id,
-      type: point.type,
-      destination: point.destination,
-      offers: point.offers,
-      basePrice: point.base_price,
-      dateFrom: point.date_from,
-      dateTo: point.date_to,
-      isFavorite: point.is_favorite,
-    }));
+    this.points = points.map(toClientPoint);
     this.destinations = destinations;
     this.offers = offers;
+  }
+
+  async savePoint(point) {
+    const resource = point.id ? `points/${point.id}` : 'points';
+    const response = await this.#api.request(resource, point.id ? 'PUT' : 'POST', toServerPoint(point));
+    const saved = toClientPoint(response);
+    const index = this.points.findIndex((item) => item.id === saved.id);
+
+    if (index === -1) {
+      this.points.push(saved);
+    } else {
+      this.points[index] = saved;
+    }
+
+    return saved;
+  }
+
+  async deletePoint(id) {
+    await this.#api.request(`points/${id}`, 'DELETE');
+    this.points = this.points.filter((point) => point.id !== id);
   }
 
   getDestination(id) {

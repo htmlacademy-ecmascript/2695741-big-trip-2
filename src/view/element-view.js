@@ -10,4 +10,15 @@ export default class ElementView {
 
     return this.#element;
   }
+
+  shake() {
+    this.getElement().animate([
+      {transform: 'translateX(0)'},
+      {transform: 'translateX(-8px)'},
+      {transform: 'translateX(8px)'},
+      {transform: 'translateX(-8px)'},
+      {transform: 'translateX(8px)'},
+      {transform: 'translateX(0)'},
+    ], {duration: 600});
+  }
 }

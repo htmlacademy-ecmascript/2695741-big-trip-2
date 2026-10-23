@@ -20,6 +20,8 @@ export default class RoutePresenter {
   #pointViews = new Map();
   #form = null;
   #addButton;
+  #summaryView = null;
+  #busy = false;
 
   constructor(store, container, header) {
     this.#store = store;
@@ -49,10 +51,12 @@ export default class RoutePresenter {
   }
 
   #renderSummary() {
+    this.#summaryView?.getElement().remove();
     const points = [...this.#store.points].sort(SORTS.day);
     const destinations = points.map((point) => this.#store.getDestination(point.destination).name);
     const total = points.reduce((sum, point) => sum + this.#store.getPointPrice(point), 0);
-    render(new SummaryView(points, destinations, total), this.#header, RenderPosition.AFTERBEGIN);
+    this.#summaryView = new SummaryView(points, destinations, total);
+    render(this.#summaryView, this.#header, RenderPosition.AFTERBEGIN);
   }
 
   #renderFilters(loading = false) {
@@ -95,13 +99,17 @@ export default class RoutePresenter {
     render(this.#contentView, this.#container);
 
     points.forEach((point) => {
-      const view = new PointView(point, this.#store.getDestination(point.destination), this.#store.getSelectedOffers(point), () => this.#openForm(point));
+      const view = this.#createPointView(point);
       this.#pointViews.set(point.id, view);
       render(view, this.#contentView.getElement());
     });
   }
 
   #openForm(point = null) {
+    if (this.#busy) {
+      return;
+    }
+
     if (!point) {
       this.#filter = 'everything';
       this.#sort = 'day';
@@ -118,7 +126,11 @@ export default class RoutePresenter {
       offers: [],
       isFavorite: false,
     };
-    this.#form = new PointFormView(draft, this.#store.destinations, this.#store.offers, this.#closeForm);
+    this.#form = new PointFormView(draft, this.#store.destinations, this.#store.offers, {
+      onClose: this.#closeForm,
+      onSave: (data) => this.#applyChange('save', () => this.#store.savePoint(data), () => this.#refreshRoute(), this.#form),
+      onDelete: (id) => this.#applyChange('delete', () => this.#store.deletePoint(id), () => this.#refreshRoute(), this.#form),
+    });
 
     if (point) {
       this.#pointViews.get(point.id).getElement().replaceWith(this.#form.getElement());
@@ -145,7 +157,9 @@ export default class RoutePresenter {
   }
 
   #closeForm = () => {
-    this.#renderPoints();
+    if (!this.#busy) {
+      this.#renderPoints();
+    }
   };
 
   #onEscape = (event) => {
@@ -154,4 +168,50 @@ export default class RoutePresenter {
       this.#closeForm();
     }
   };
+
+  #createPointView(point) {
+    return new PointView(point, this.#store.getDestination(point.destination), this.#store.getSelectedOffers(point), {
+      onEdit: () => this.#openForm(point),
+      onFavorite: () => {
+        const view = this.#pointViews.get(point.id);
+        this.#applyChange('favorite', () => this.#store.savePoint({...point, isFavorite: !point.isFavorite}), (saved) => {
+          const updated = this.#createPointView(saved);
+          view.getElement().replaceWith(updated.getElement());
+          this.#pointViews.set(saved.id, updated);
+        }, view);
+      },
+    });
+  }
+
+  #refreshRoute() {
+    this.#renderSummary();
+    this.#renderFilters();
+    this.#renderPoints();
+  }
+
+  #setBlocked(blocked, action = null) {
+    this.#header.inert = blocked;
+    this.#container.inert = blocked;
+    this.#addButton.disabled = blocked || Boolean(this.#form?.isNew);
+    this.#form?.setPending(action);
+  }
+
+  async #applyChange(action, operation, onSuccess, feedback) {
+    if (this.#busy) {
+      return;
+    }
+
+    this.#busy = true;
+    this.#setBlocked(true, action);
+
+    try {
+      const result = await operation();
+      onSuccess(result);
+    } catch {
+      feedback.shake();
+    } finally {
+      this.#busy = false;
+      this.#setBlocked(false);
+    }
+  }
 }

@@ -9,19 +9,28 @@ export default class PointFormView extends ElementView {
   #offers;
   #pickers = [];
 
-  constructor(point, destinations, offers, onClose) {
+  constructor(point, destinations, offers, {onClose, onSave, onDelete}) {
     super();
     this.#point = structuredClone(point);
     this.#destinations = destinations;
     this.#offers = offers;
     this.getElement().addEventListener('input', this.#onInput);
     this.getElement().addEventListener('change', this.#onChange);
-    this.getElement().querySelector('form').addEventListener('submit', (event) => event.preventDefault());
+    this.getElement().querySelector('form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      this.getElement().querySelector('input:focus')?.blur();
+
+      if (event.target.reportValidity()) {
+        onSave(structuredClone(this.#point));
+      }
+    });
     this.getElement().querySelector('.event__rollup-btn')?.addEventListener('click', onClose);
 
-    if (!point.id) {
-      this.getElement().querySelector('.event__reset-btn').addEventListener('click', onClose);
-    }
+    this.getElement().querySelector('.event__reset-btn').addEventListener('click', point.id ? () => onDelete(point.id) : onClose);
+  }
+
+  get isNew() {
+    return !this.#point.id;
   }
 
   getTemplate() {
@@ -66,6 +75,17 @@ export default class PointFormView extends ElementView {
     this.#pickers.forEach((picker) => picker.destroy());
     this.#pickers = [];
     this.getElement().remove();
+  }
+
+  setPending(action) {
+    this.#pickers.forEach((picker) => picker.close());
+    this.getElement().querySelector('.event').classList.toggle('event--blocked', Boolean(action));
+    this.getElement().querySelectorAll('input, button').forEach((control) => {
+      control.disabled = Boolean(action);
+    });
+    this.getElement().querySelector('.event__save-btn').textContent = action === 'save' ? 'Saving...' : 'Save';
+    const resetText = this.isNew ? 'Cancel' : 'Delete';
+    this.getElement().querySelector('.event__reset-btn').textContent = action === 'delete' ? 'Deleting...' : resetText;
   }
 
   #onInput = (event) => {

@@ -84,8 +84,8 @@ const createFormTemplate = (point, destinations, groups) => {
             <label class="event__label" for="event-price"><span class="visually-hidden">Price</span>&euro;</label>
             <input class="event__input event__input--price" id="event-price" type="number" name="event-price" value="${point.basePrice}" min="1" step="1" required>
           </div>
-          <button class="event__save-btn btn btn--blue" type="submit" disabled>Save</button>
-          <button class="event__reset-btn" type="button" ${point.id ? 'disabled' : ''}>${point.id ? 'Delete' : 'Cancel'}</button>
+          <button class="event__save-btn btn btn--blue" type="submit">Save</button>
+          <button class="event__reset-btn" type="button">${point.id ? 'Delete' : 'Cancel'}</button>
           ${point.id ? '<button class="event__rollup-btn" type="button"><span class="visually-hidden">Close event</span></button>' : ''}
         </header>
         ${createDetailsTemplate(point, destinations, groups)}
