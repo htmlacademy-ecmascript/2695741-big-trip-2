@@ -18,7 +18,12 @@ export default class PointFormView extends ElementView {
     this.getElement().addEventListener('change', this.#onChange);
     this.getElement().querySelector('form').addEventListener('submit', (event) => {
       event.preventDefault();
-      this.getElement().querySelector('input:focus')?.blur();
+      const emptyPicker = this.#pickers.find((picker) => !picker.selectedDates.length);
+
+      if (emptyPicker) {
+        emptyPicker.open();
+        return;
+      }
 
       if (event.target.reportValidity()) {
         onSave(structuredClone(this.#point));
@@ -42,7 +47,6 @@ export default class PointFormView extends ElementView {
       dateFormat: 'd/m/y H:i',
       enableTime: true,
       'time_24hr': true,
-      allowInput: true,
       disableMobile: true,
     };
     const fromPicker = flatpickr(this.getElement().querySelector('[name="event-start-time"]'), {
