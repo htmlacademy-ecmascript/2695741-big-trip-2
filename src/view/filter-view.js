@@ -1,6 +1,6 @@
-import ElementView from './element-view.js';
+import AbstractView from '../framework/view/abstract-view.js';
 
-export default class FilterView extends ElementView {
+export default class FilterView extends AbstractView {
   #filters;
   #current;
 
@@ -8,11 +8,11 @@ export default class FilterView extends ElementView {
     super();
     this.#filters = filters;
     this.#current = current;
-    this.getElement().addEventListener('change', (event) => onChange(event.target.value));
-    this.getElement().addEventListener('submit', (event) => event.preventDefault());
+    this.element.addEventListener('change', (event) => onChange(event.target.value));
+    this.element.addEventListener('submit', (event) => event.preventDefault());
   }
 
-  getTemplate() {
+  get template() {
     const filters = this.#filters.map(({type, label, disabled}) => `
       <div class="trip-filters__filter">
         <input id="filter-${type}" class="trip-filters__filter-input visually-hidden" type="radio" name="trip-filter" value="${type}" ${type === this.#current ? 'checked' : ''} ${disabled ? 'disabled' : ''}>

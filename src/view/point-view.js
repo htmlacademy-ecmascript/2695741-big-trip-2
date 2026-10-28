@@ -1,8 +1,8 @@
 import he from 'he';
-import ElementView from './element-view.js';
+import AbstractView from '../framework/view/abstract-view.js';
 import {formatDate, formatDuration} from '../utils/date.js';
 
-export default class PointView extends ElementView {
+export default class PointView extends AbstractView {
   #point;
   #destination;
   #offers;
@@ -12,11 +12,16 @@ export default class PointView extends ElementView {
     this.#point = point;
     this.#destination = destination;
     this.#offers = offers;
-    this.getElement().querySelector('.event__rollup-btn').addEventListener('click', onEdit);
-    this.getElement().querySelector('.event__favorite-btn').addEventListener('click', onFavorite);
+    this._callback.onFavorite = onFavorite;
+    this.element.querySelector('.event__rollup-btn').addEventListener('click', onEdit);
+    this.element.querySelector('.event__favorite-btn').addEventListener('click', this.#onFavoriteClick);
   }
 
-  getTemplate() {
+  #onFavoriteClick = () => {
+    this._callback.onFavorite();
+  };
+
+  get template() {
     const {type, dateFrom, dateTo, basePrice, isFavorite} = this.#point;
     const title = type.charAt(0).toUpperCase() + type.slice(1);
     const offers = this.#offers.map((offer) => `

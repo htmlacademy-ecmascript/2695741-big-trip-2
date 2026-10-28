@@ -831,3 +831,15 @@ main {
     padding-right: 20px; }
   .event__photo:not(:last-child) {
     margin-right: 5px; }
+
+.trip-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  width: 100%;
+  height: 6px;
+  margin: 0;
+  border: 0;
+  accent-color: #0d8ae4;
+}

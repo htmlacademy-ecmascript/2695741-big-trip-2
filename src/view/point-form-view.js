@@ -1,45 +1,44 @@
 import flatpickr from 'flatpickr';
-import ElementView from './element-view.js';
-import {createFormTemplate, createDetailsTemplate} from './point-form-template.js';
+import AbstractStatefulView from '../framework/view/abstract-stateful-view.js';
+import {UserAction} from '../const.js';
+import {createFormTemplate} from './point-form-template.js';
 import {toPickerDate, fromPickerDate} from '../utils/date.js';
 
-export default class PointFormView extends ElementView {
-  #point;
+export default class PointFormView extends AbstractStatefulView {
   #destinations;
   #offers;
   #pickers = [];
 
-  constructor(point, destinations, offers, {onClose, onSave, onDelete}) {
+  constructor(point, destinations, offers, callbacks) {
     super();
-    this.#point = structuredClone(point);
     this.#destinations = destinations;
     this.#offers = offers;
-    this.getElement().addEventListener('input', this.#onInput);
-    this.getElement().addEventListener('change', this.#onChange);
-    this.getElement().querySelector('form').addEventListener('submit', (event) => {
-      event.preventDefault();
-      const emptyPicker = this.#pickers.find((picker) => !picker.selectedDates.length);
-
-      if (emptyPicker) {
-        emptyPicker.open();
-        return;
-      }
-
-      if (event.target.reportValidity()) {
-        onSave(structuredClone(this.#point));
-      }
+    this._callback = callbacks;
+    this._setState({
+      ...structuredClone(point),
+      destinationName: destinations.find((item) => item.id === point.destination)?.name ?? '',
+      isDisabled: false,
+      isSaving: false,
+      isDeleting: false,
     });
-    this.getElement().querySelector('.event__rollup-btn')?.addEventListener('click', onClose);
-
-    this.getElement().querySelector('.event__reset-btn').addEventListener('click', point.id ? () => onDelete(point.id) : onClose);
+    this._restoreHandlers();
   }
 
-  get isNew() {
-    return !this.#point.id;
+  static parseStateToPoint(state) {
+    return {
+      id: state.id,
+      type: state.type,
+      destination: state.destination,
+      offers: [...state.offers],
+      basePrice: Number(state.basePrice),
+      dateFrom: state.dateFrom,
+      dateTo: state.dateTo,
+      isFavorite: state.isFavorite,
+    };
   }
 
-  getTemplate() {
-    return createFormTemplate(this.#point, this.#destinations, this.#offers);
+  get template() {
+    return createFormTemplate(this._state, this.#destinations, this.#offers);
   }
 
   init() {
@@ -49,61 +48,107 @@ export default class PointFormView extends ElementView {
       'time_24hr': true,
       disableMobile: true,
     };
-    const fromPicker = flatpickr(this.getElement().querySelector('[name="event-start-time"]'), {
+    const fromPicker = flatpickr(this.element.querySelector('[name="event-start-time"]'), {
       ...settings,
-      defaultDate: this.#point.dateFrom ? toPickerDate(this.#point.dateFrom) : null,
+      defaultDate: this._state.dateFrom ? toPickerDate(this._state.dateFrom) : null,
       onChange: ([date]) => {
-        this.#point.dateFrom = date ? fromPickerDate(date) : null;
+        const dateFrom = date ? fromPickerDate(date) : null;
         const endPicker = this.#pickers[1];
+        this._setState({dateFrom});
 
-        if (date && this.#point.dateTo && this.#point.dateTo < this.#point.dateFrom) {
-          this.#point.dateTo = null;
+        if (date && this._state.dateTo && this._state.dateTo < dateFrom) {
+          this._setState({dateTo: null});
           endPicker.clear(false);
         }
 
         endPicker.set('minDate', date ?? null);
       },
     });
-    const toPicker = flatpickr(this.getElement().querySelector('[name="event-end-time"]'), {
+    const toPicker = flatpickr(this.element.querySelector('[name="event-end-time"]'), {
       ...settings,
-      defaultDate: this.#point.dateTo ? toPickerDate(this.#point.dateTo) : null,
-      minDate: this.#point.dateFrom ? toPickerDate(this.#point.dateFrom) : null,
-      onChange: ([date]) => {
-        this.#point.dateTo = date ? fromPickerDate(date) : null;
-      },
+      defaultDate: this._state.dateTo ? toPickerDate(this._state.dateTo) : null,
+      minDate: this._state.dateFrom ? toPickerDate(this._state.dateFrom) : null,
+      onChange: ([date]) => this._setState({dateTo: date ? fromPickerDate(date) : null}),
     });
     this.#pickers = [fromPicker, toPicker];
   }
 
+  updateElement() {
+    this.#destroyPickers();
+    super.updateElement();
+    this.init();
+  }
+
   destroy() {
-    this.#pickers.forEach((picker) => picker.destroy());
-    this.#pickers = [];
-    this.getElement().remove();
+    this.#destroyPickers();
+    this.element.remove();
+    this.removeElement();
   }
 
   setPending(action) {
-    this.#pickers.forEach((picker) => picker.close());
-    this.getElement().querySelector('.event').classList.toggle('event--blocked', Boolean(action));
-    this.getElement().querySelectorAll('input, button').forEach((control) => {
-      control.disabled = Boolean(action);
+    this.updateData({
+      isDisabled: Boolean(action),
+      isSaving: action === UserAction.ADD_POINT || action === UserAction.UPDATE_POINT,
+      isDeleting: action === UserAction.DELETE_POINT,
     });
-    this.getElement().querySelector('.event__save-btn').textContent = action === 'save' ? 'Saving...' : 'Save';
-    const resetText = this.isNew ? 'Cancel' : 'Delete';
-    this.getElement().querySelector('.event__reset-btn').textContent = action === 'delete' ? 'Deleting...' : resetText;
   }
+
+  _restoreHandlers() {
+    this.element.addEventListener('input', this.#onInput);
+    this.element.addEventListener('change', this.#onChange);
+    this.element.querySelector('form').addEventListener('submit', this.#onSubmit);
+    this.element.querySelector('.event__rollup-btn')?.addEventListener('click', this._callback.onClose);
+    this.element.querySelector('.event__reset-btn').addEventListener('click', this.#onReset);
+    const destination = this.element.querySelector('[name="event-destination"]');
+    destination.setCustomValidity(this._state.destinationName && !this._state.destination ? 'Choose a destination from the list' : '');
+  }
+
+  #destroyPickers() {
+    this.#pickers.forEach((picker) => picker.destroy());
+    this.#pickers = [];
+  }
+
+  #onSubmit = (event) => {
+    event.preventDefault();
+
+    if (this._state.isDisabled) {
+      return;
+    }
+
+    const emptyPicker = this.#pickers.find((picker) => !picker.selectedDates.length);
+
+    if (emptyPicker) {
+      emptyPicker.open();
+      return;
+    }
+
+    if (event.target.reportValidity()) {
+      this._callback.onSave(PointFormView.parseStateToPoint(this._state));
+    }
+  };
+
+  #onReset = () => {
+    if (this._state.id) {
+      this._callback.onDelete(this._state.id);
+    } else {
+      this._callback.onClose();
+    }
+  };
 
   #onInput = (event) => {
     const input = event.target;
 
     if (input.name === 'event-price') {
-      this.#point.basePrice = input.valueAsNumber;
+      this._setState({basePrice: input.value});
     }
 
     if (input.name === 'event-destination') {
       const destination = this.#destinations.find((item) => item.name === input.value);
-      this.#point.destination = destination?.id ?? null;
-      input.setCustomValidity(destination ? '' : 'Choose a destination from the list');
-      this.#renderDetails();
+      const caret = input.selectionStart;
+      this.updateData({destination: destination?.id ?? null, destinationName: input.value});
+      const restoredInput = this.element.querySelector('[name="event-destination"]');
+      restoredInput.focus();
+      restoredInput.setSelectionRange(caret, caret);
     }
   };
 
@@ -111,22 +156,12 @@ export default class PointFormView extends ElementView {
     const input = event.target;
 
     if (input.name === 'event-type') {
-      this.#point.type = input.value;
-      this.#point.offers = [];
-      this.getElement().querySelector('.event__type-icon').src = `img/icons/${input.value}.png`;
-      this.getElement().querySelector('.event__type-output').textContent = input.value;
-      this.getElement().querySelector('.event__type-toggle').checked = false;
-      this.#renderDetails();
+      this.updateData({type: input.value, offers: []});
     }
 
     if (input.name === 'event-offer') {
-      this.#point.offers = [...this.getElement().querySelectorAll('[name="event-offer"]:checked')].map((offer) => offer.value);
+      const offers = [...this.element.querySelectorAll('[name="event-offer"]:checked')].map((offer) => offer.value);
+      this._setState({offers});
     }
   };
-
-  #renderDetails() {
-    const form = this.getElement().querySelector('form');
-    form.querySelector('.event__details')?.remove();
-    form.insertAdjacentHTML('beforeend', createDetailsTemplate(this.#point, this.#destinations, this.#offers));
-  }
 }

@@ -1,20 +1,22 @@
+import {FilterType} from '../const.js';
+
 const FILTERS = {
-  everything: {
+  [FilterType.EVERYTHING]: {
     label: 'Everything',
     message: 'Click New Event to create your first point',
     matches: () => true,
   },
-  future: {
+  [FilterType.FUTURE]: {
     label: 'Future',
     message: 'There are no future events now',
     matches: (point, now) => new Date(point.dateFrom).getTime() > now,
   },
-  present: {
+  [FilterType.PRESENT]: {
     label: 'Present',
     message: 'There are no present events now',
     matches: (point, now) => new Date(point.dateFrom).getTime() <= now && new Date(point.dateTo).getTime() >= now,
   },
-  past: {
+  [FilterType.PAST]: {
     label: 'Past',
     message: 'There are no past events now',
     matches: (point, now) => new Date(point.dateTo).getTime() < now,
