@@ -2,13 +2,13 @@ import he from 'he';
 
 const POINT_TYPES = ['taxi', 'bus', 'train', 'ship', 'drive', 'flight', 'check-in', 'sightseeing', 'restaurant'];
 
-const createOffersTemplate = (offers, selected) => offers.length ? `
+const createOffersTemplate = (offers, selected, disabled) => offers.length ? `
   <section class="event__section event__section--offers">
     <h3 class="event__section-title event__section-title--offers">Offers</h3>
     <div class="event__available-offers">
       ${offers.map((offer) => `
         <div class="event__offer-selector">
-          <input class="event__offer-checkbox visually-hidden" id="event-offer-${he.encode(offer.id)}" type="checkbox" name="event-offer" value="${he.encode(offer.id)}" ${selected.includes(offer.id) ? 'checked' : ''}>
+          <input class="event__offer-checkbox visually-hidden" id="event-offer-${he.encode(offer.id)}" type="checkbox" name="event-offer" value="${he.encode(offer.id)}" ${selected.includes(offer.id) ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
           <label class="event__offer-label" for="event-offer-${he.encode(offer.id)}">
             <span class="event__offer-title">${he.encode(offer.title)}</span>
             &plus;&euro;&nbsp;<span class="event__offer-price">${offer.price}</span>
@@ -38,29 +38,30 @@ const createDestinationTemplate = (destination) => {
 const createDetailsTemplate = (point, destinations, groups) => {
   const offers = groups.find((group) => group.type === point.type)?.offers ?? [];
   const destination = destinations.find((item) => item.id === point.destination);
-  const details = createOffersTemplate(offers, point.offers) + createDestinationTemplate(destination);
+  const details = createOffersTemplate(offers, point.offers, point.isDisabled) + createDestinationTemplate(destination);
   return details ? `<section class="event__details">${details}</section>` : '';
 };
 
 const createFormTemplate = (point, destinations, groups) => {
-  const destination = destinations.find((item) => item.id === point.destination);
+  const disabled = point.isDisabled ? 'disabled' : '';
+  const resetText = point.id ? 'Delete' : 'Cancel';
 
   return `
     <li class="trip-events__item">
-      <form class="event event--edit" action="#" method="post">
+      <form class="event event--edit${point.isDisabled ? ' event--blocked' : ''}" action="#" method="post">
         <header class="event__header">
           <div class="event__type-wrapper">
             <label class="event__type event__type-btn" for="event-type-toggle">
               <span class="visually-hidden">Choose event type</span>
               <img class="event__type-icon" width="17" height="17" src="img/icons/${he.encode(point.type)}.png" alt="Event type icon">
             </label>
-            <input class="event__type-toggle visually-hidden" id="event-type-toggle" type="checkbox">
+            <input class="event__type-toggle visually-hidden" id="event-type-toggle" type="checkbox" ${disabled}>
             <div class="event__type-list">
-              <fieldset class="event__type-group">
+              <fieldset class="event__type-group" ${disabled}>
                 <legend class="visually-hidden">Event type</legend>
                 ${POINT_TYPES.map((type) => `
                   <div class="event__type-item">
-                    <input id="event-type-${type}" class="event__type-input visually-hidden" type="radio" name="event-type" value="${type}" ${type === point.type ? 'checked' : ''}>
+                    <input id="event-type-${type}" class="event__type-input visually-hidden" type="radio" name="event-type" value="${type}" ${type === point.type ? 'checked' : ''} ${disabled}>
                     <label class="event__type-label event__type-label--${type}" for="event-type-${type}">${type}</label>
                   </div>`).join('')}
               </fieldset>
@@ -68,29 +69,29 @@ const createFormTemplate = (point, destinations, groups) => {
           </div>
           <div class="event__field-group event__field-group--destination">
             <label class="event__label event__type-output" for="event-destination">${he.encode(point.type)}</label>
-            <input class="event__input event__input--destination" id="event-destination" type="text" name="event-destination" value="${he.encode(destination?.name ?? '')}" list="destination-list" autocomplete="off" required>
+            <input class="event__input event__input--destination" id="event-destination" type="text" name="event-destination" value="${he.encode(point.destinationName)}" list="destination-list" autocomplete="off" required ${disabled}>
             <datalist id="destination-list">
               ${destinations.map((item) => `<option value="${he.encode(item.name)}"></option>`).join('')}
             </datalist>
           </div>
           <div class="event__field-group event__field-group--time">
             <label class="visually-hidden" for="event-start-time">From</label>
-            <input class="event__input event__input--time" id="event-start-time" type="text" name="event-start-time" required>
+            <input class="event__input event__input--time" id="event-start-time" type="text" name="event-start-time" required ${disabled}>
             &mdash;
             <label class="visually-hidden" for="event-end-time">To</label>
-            <input class="event__input event__input--time" id="event-end-time" type="text" name="event-end-time" required>
+            <input class="event__input event__input--time" id="event-end-time" type="text" name="event-end-time" required ${disabled}>
           </div>
           <div class="event__field-group event__field-group--price">
             <label class="event__label" for="event-price"><span class="visually-hidden">Price</span>&euro;</label>
-            <input class="event__input event__input--price" id="event-price" type="number" name="event-price" value="${point.basePrice}" min="1" step="1" required>
+            <input class="event__input event__input--price" id="event-price" type="number" name="event-price" value="${he.encode(String(point.basePrice))}" min="1" step="1" required ${disabled}>
           </div>
-          <button class="event__save-btn btn btn--blue" type="submit">Save</button>
-          <button class="event__reset-btn" type="button">${point.id ? 'Delete' : 'Cancel'}</button>
-          ${point.id ? '<button class="event__rollup-btn" type="button"><span class="visually-hidden">Close event</span></button>' : ''}
+          <button class="event__save-btn btn btn--blue" type="submit" ${disabled}>${point.isSaving ? 'Saving...' : 'Save'}</button>
+          <button class="event__reset-btn" type="button" ${disabled}>${point.isDeleting ? 'Deleting...' : resetText}</button>
+          ${point.id ? `<button class="event__rollup-btn" type="button" ${disabled}><span class="visually-hidden">Close event</span></button>` : ''}
         </header>
         ${createDetailsTemplate(point, destinations, groups)}
       </form>
     </li>`;
 };
 
-export {createFormTemplate, createDetailsTemplate};
+export {createFormTemplate};

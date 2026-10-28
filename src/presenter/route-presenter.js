@@ -1,91 +1,81 @@
-import {render, RenderPosition} from '../render.js';
+import {render, remove, RenderPosition} from '../framework/render.js';
+import {UserAction, UpdateType, FilterType} from '../const.js';
+import PointPresenter from './point-presenter.js';
 import ListView from '../view/list-view.js';
 import MessageView from '../view/message-view.js';
-import PointView from '../view/point-view.js';
+import ProgressView from '../view/progress-view.js';
 import SummaryView from '../view/summary-view.js';
-import FilterView from '../view/filter-view.js';
 import SortView from '../view/sort-view.js';
-import PointFormView from '../view/point-form-view.js';
 import {FILTERS, SORTS, filterPoints} from '../utils/route.js';
 
 export default class RoutePresenter {
   #store;
+  #filterModel;
   #container;
   #header;
-  #filter = 'everything';
   #sort = 'day';
-  #filterView = null;
   #sortView = null;
   #contentView = null;
-  #pointViews = new Map();
-  #form = null;
+  #pointPresenters = new Map();
+  #newPointPresenter = null;
   #addButton;
   #summaryView = null;
+  #progressView = null;
   #busy = false;
 
-  constructor(store, container, header) {
+  constructor(store, filterModel, container, header) {
     this.#store = store;
+    this.#filterModel = filterModel;
     this.#container = container;
     this.#header = header;
     this.#addButton = header.querySelector('.trip-main__event-add-btn');
-    this.#addButton.addEventListener('click', () => this.#openForm());
   }
 
-  async init() {
-    this.#renderFilters(true);
-    const loading = new MessageView('Loading...');
-    render(loading, this.#container);
+  init() {
+    this.#store.addObserver(this.#handleModelEvent);
+    this.#filterModel.addObserver(this.#handleFilterChange);
+    this.#addButton.addEventListener('click', this.#onAddPoint);
+    this.#contentView = new MessageView('Loading...');
+    render(this.#contentView, this.#container);
+  }
 
-    try {
-      await this.#store.load();
-    } catch {
-      loading.getElement().remove();
-      render(new MessageView('Failed to load latest route information'), this.#container);
-      return;
-    }
-
-    loading.getElement().remove();
-    this.#renderSummary();
-    this.#renderFilters();
-    this.#renderPoints();
+  destroy() {
+    this.#store.removeObserver(this.#handleModelEvent);
+    this.#filterModel.removeObserver(this.#handleFilterChange);
+    this.#addButton.removeEventListener('click', this.#onAddPoint);
+    this.#clearPoints();
+    remove(this.#summaryView);
+    remove(this.#progressView);
   }
 
   #renderSummary() {
-    this.#summaryView?.getElement().remove();
-    const points = [...this.#store.points].sort(SORTS.day);
+    remove(this.#summaryView);
+    const points = this.#store.points.sort(SORTS.day);
     const destinations = points.map((point) => this.#store.getDestination(point.destination).name);
     const total = points.reduce((sum, point) => sum + this.#store.getPointPrice(point), 0);
     this.#summaryView = new SummaryView(points, destinations, total);
     render(this.#summaryView, this.#header, RenderPosition.AFTERBEGIN);
   }
 
-  #renderFilters(loading = false) {
-    this.#filterView?.getElement().remove();
-    const now = Date.now();
-    const filters = Object.entries(FILTERS).map(([type, {label}]) => ({
-      type,
-      label,
-      disabled: loading || !filterPoints(this.#store.points, type, now).length,
-    }));
-
-    this.#filterView = new FilterView(filters, this.#filter, (filter) => {
-      this.#filter = filter;
-      this.#sort = 'day';
-      this.#renderFilters();
-      this.#renderPoints();
-    });
-    render(this.#filterView, this.#header.querySelector('.trip-controls__filters'));
+  #clearPoints() {
+    this.#newPointPresenter?.destroy();
+    this.#newPointPresenter = null;
+    this.#pointPresenters.forEach((presenter) => presenter.destroy());
+    this.#pointPresenters.clear();
+    remove(this.#sortView);
+    this.#sortView = null;
+    remove(this.#contentView);
+    this.#contentView = null;
   }
 
   #renderPoints() {
-    this.#clearForm();
-    this.#pointViews.clear();
-    this.#sortView?.getElement().remove();
-    this.#contentView?.getElement().remove();
-    const points = filterPoints(this.#store.points, this.#filter).sort(SORTS[this.#sort]);
+    this.#clearPoints();
+    this.#addButton.disabled = this.#busy;
+    const filter = this.#filterModel.filter;
+    const points = filterPoints(this.#store.points, filter).sort(SORTS[this.#sort]);
 
     if (!points.length) {
-      this.#contentView = new MessageView(FILTERS[this.#filter].message);
+      this.#contentView = new MessageView(FILTERS[filter].message);
       render(this.#contentView, this.#container);
       return;
     }
@@ -99,119 +89,136 @@ export default class RoutePresenter {
     render(this.#contentView, this.#container);
 
     points.forEach((point) => {
-      const view = this.#createPointView(point);
-      this.#pointViews.set(point.id, view);
-      render(view, this.#contentView.getElement());
+      const presenter = this.#createPointPresenter();
+      this.#pointPresenters.set(point.id, presenter);
+      presenter.init(point);
     });
   }
 
-  #openForm(point = null) {
+  #createPointPresenter() {
+    return new PointPresenter(this.#store, this.#contentView.element, {
+      onDataChange: this.#handleViewAction,
+      onModeChange: this.#resetForms,
+      onClose: this.#handleFormClose,
+    });
+  }
+
+  #onAddPoint = () => {
     if (this.#busy) {
       return;
     }
 
-    if (!point) {
-      this.#filter = 'everything';
-      this.#sort = 'day';
-      this.#renderFilters();
-    }
-
-    this.#renderPoints();
-    const draft = point ?? {
-      type: 'flight',
-      destination: null,
-      dateFrom: null,
-      dateTo: null,
-      basePrice: 0,
-      offers: [],
-      isFavorite: false,
-    };
-    this.#form = new PointFormView(draft, this.#store.destinations, this.#store.offers, {
-      onClose: this.#closeForm,
-      onSave: (data) => this.#applyChange('save', () => this.#store.savePoint(data), () => this.#refreshRoute(), this.#form),
-      onDelete: (id) => this.#applyChange('delete', () => this.#store.deletePoint(id), () => this.#refreshRoute(), this.#form),
-    });
-
-    if (point) {
-      this.#pointViews.get(point.id).getElement().replaceWith(this.#form.getElement());
+    if (this.#filterModel.filter !== FilterType.EVERYTHING) {
+      this.#filterModel.setFilter(FilterType.EVERYTHING);
     } else {
-      if (!this.#store.points.length) {
-        this.#contentView.getElement().remove();
-        this.#contentView = new ListView();
-        render(this.#contentView, this.#container);
-      }
-
-      render(this.#form, this.#contentView.getElement(), RenderPosition.AFTERBEGIN);
-      this.#addButton.disabled = true;
-    }
-
-    this.#form.init();
-    document.addEventListener('keydown', this.#onEscape, true);
-  }
-
-  #clearForm() {
-    this.#form?.destroy();
-    this.#form = null;
-    this.#addButton.disabled = false;
-    document.removeEventListener('keydown', this.#onEscape, true);
-  }
-
-  #closeForm = () => {
-    if (!this.#busy) {
+      this.#sort = 'day';
       this.#renderPoints();
     }
+
+    if (!this.#store.points.length) {
+      remove(this.#contentView);
+      this.#contentView = new ListView();
+      render(this.#contentView, this.#container);
+    }
+
+    this.#newPointPresenter = this.#createPointPresenter();
+    this.#newPointPresenter.init();
+    this.#addButton.disabled = true;
   };
 
-  #onEscape = (event) => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      this.#closeForm();
+  #resetForms = () => {
+    this.#newPointPresenter?.destroy();
+    this.#newPointPresenter = null;
+    this.#pointPresenters.forEach((presenter) => presenter.resetView());
+    this.#addButton.disabled = this.#busy;
+  };
+
+  #handleFormClose = (presenter) => {
+    if (presenter === this.#newPointPresenter) {
+      this.#newPointPresenter = null;
+      this.#addButton.disabled = this.#busy;
+
+      if (!this.#store.points.length) {
+        this.#renderPoints();
+      }
     }
   };
 
-  #createPointView(point) {
-    return new PointView(point, this.#store.getDestination(point.destination), this.#store.getSelectedOffers(point), {
-      onEdit: () => this.#openForm(point),
-      onFavorite: () => {
-        const view = this.#pointViews.get(point.id);
-        this.#applyChange('favorite', () => this.#store.savePoint({...point, isFavorite: !point.isFavorite}), (saved) => {
-          const updated = this.#createPointView(saved);
-          view.getElement().replaceWith(updated.getElement());
-          this.#pointViews.set(saved.id, updated);
-        }, view);
-      },
-    });
-  }
-
-  #refreshRoute() {
-    this.#renderSummary();
-    this.#renderFilters();
-    this.#renderPoints();
-  }
-
   #setBlocked(blocked, action = null) {
+    remove(this.#progressView);
+    this.#progressView = null;
+
+    if (blocked) {
+      this.#progressView = new ProgressView(action === UserAction.DELETE_POINT ? 'Deleting...' : 'Saving...');
+      render(this.#progressView, document.body);
+    }
+
     this.#header.inert = blocked;
     this.#container.inert = blocked;
-    this.#addButton.disabled = blocked || Boolean(this.#form?.isNew);
-    this.#form?.setPending(action);
+    this.#container.setAttribute('aria-busy', String(blocked));
+    this.#addButton.disabled = blocked || Boolean(this.#newPointPresenter);
+    this.#pointPresenters.forEach((presenter) => presenter.setPending(action));
+    this.#newPointPresenter?.setPending(action);
   }
 
-  async #applyChange(action, operation, onSuccess, feedback) {
+  #handleModelEvent = (updateType, point) => {
+    switch (updateType) {
+      case UpdateType.PATCH:
+        this.#pointPresenters.get(point.id)?.init(point);
+        this.#renderSummary();
+        break;
+      case UpdateType.INIT:
+      case UpdateType.MINOR:
+        this.#renderSummary();
+        this.#renderPoints();
+        break;
+      case UpdateType.ERROR:
+        this.#clearPoints();
+        this.#contentView = new MessageView('Failed to load latest route information');
+        render(this.#contentView, this.#container);
+        this.#addButton.disabled = true;
+        break;
+    }
+  };
+
+  #handleViewAction = async (action, point, presenter) => {
     if (this.#busy) {
       return;
     }
 
     this.#busy = true;
     this.#setBlocked(true, action);
+    let failed = false;
 
     try {
-      const result = await operation();
-      onSuccess(result);
+      switch (action) {
+        case UserAction.ADD_POINT:
+          await this.#store.addPoint(point);
+          break;
+        case UserAction.UPDATE_POINT:
+          await this.#store.updatePoint(point);
+          break;
+        case UserAction.DELETE_POINT:
+          await this.#store.deletePoint(point.id);
+          break;
+        case UserAction.UPDATE_FAVORITE:
+          await this.#store.updatePoint(point, UpdateType.PATCH);
+          break;
+      }
     } catch {
-      feedback.shake();
+      failed = true;
     } finally {
       this.#busy = false;
       this.#setBlocked(false);
     }
-  }
+
+    if (failed) {
+      presenter.shake();
+    }
+  };
+
+  #handleFilterChange = () => {
+    this.#sort = 'day';
+    this.#renderPoints();
+  };
 }

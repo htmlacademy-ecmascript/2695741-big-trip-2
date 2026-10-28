@@ -1,22 +1,39 @@
+import ApiService from '../framework/api-service.js';
+import {toClientPoint, toServerPoint} from './point-adapter.js';
+
 const ENDPOINT = 'https://22.objects.htmlacademy.pro/big-trip';
 
 export default class RouteApi {
-  #authorization = `Basic ${crypto.randomUUID()}`;
+  #service;
 
-  async request(resource, method = 'GET', data) {
-    const response = await fetch(`${ENDPOINT}/${resource}`, {
-      method,
-      headers: {
-        Authorization: this.#authorization,
-        'Content-Type': 'application/json',
-      },
-      body: data ? JSON.stringify(data) : undefined,
-    });
+  constructor(service = new ApiService(ENDPOINT, `Basic ${crypto.randomUUID()}`)) {
+    this.#service = service;
+  }
 
-    if (!response.ok) {
-      throw new Error(`Request failed: ${response.status}`);
-    }
+  async getPoints() {
+    const points = await this.#service.request('points');
+    return points.map(toClientPoint);
+  }
 
-    return response.status === 204 ? null : response.json();
+  getDestinations() {
+    return this.#service.request('destinations');
+  }
+
+  getOffers() {
+    return this.#service.request('offers');
+  }
+
+  async addPoint(point) {
+    const saved = await this.#service.request('points', 'POST', toServerPoint(point));
+    return toClientPoint(saved);
+  }
+
+  async updatePoint(point) {
+    const saved = await this.#service.request(`points/${point.id}`, 'PUT', toServerPoint(point));
+    return toClientPoint(saved);
+  }
+
+  deletePoint(id) {
+    return this.#service.request(`points/${id}`, 'DELETE');
   }
 }

@@ -1,8 +1,10 @@
 import he from 'he';
-import ElementView from './element-view.js';
+import AbstractView from '../framework/view/abstract-view.js';
 import {formatDate} from '../utils/date.js';
 
-export default class SummaryView extends ElementView {
+const MAX_VISIBLE_DESTINATIONS = 3;
+
+export default class SummaryView extends AbstractView {
   #points;
   #destinations;
   #total;
@@ -14,11 +16,11 @@ export default class SummaryView extends ElementView {
     this.#total = total;
   }
 
-  getTemplate() {
+  get template() {
     const first = this.#points[0];
     const last = this.#points[this.#points.length - 1];
     const names = this.#destinations;
-    const title = names.length > 3 ? `${names[0]} — ... — ${names[names.length - 1]}` : names.join(' — ');
+    const title = names.length > MAX_VISIBLE_DESTINATIONS ? `${names[0]} — ... — ${names[names.length - 1]}` : names.join(' — ');
     const dates = first ? `${formatDate(first.dateFrom, 'D MMM')} — ${formatDate(last.dateTo, 'D MMM')}`.toUpperCase() : '';
 
     return `
